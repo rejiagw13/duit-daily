@@ -26,7 +26,7 @@ nav button{background:none;border:0;color:#c5c9da;text-align:left;padding:12px 1
 nav button.on{background:#2c3140;color:var(--lime)}
 .quote{margin-top:auto;border-top:1px solid #343a4e;padding:16px 12px 0;font-size:12.5px;color:#aeb3c8;line-height:1.5}
 .quote span{color:#f3e56b}
-main{flex:1;min-width:0;padding:28px 40px 60px;max-width:1000px}
+main{flex:1;min-width:0;padding:28px 48px 60px}
 .top{display:flex;justify-content:space-between;align-items:center;padding-bottom:16px;border-bottom:1px solid var(--line);font-size:13px;color:var(--mut)}
 .av{width:34px;height:34px;border-radius:50%;background:#f0b99a;color:var(--ink);display:grid;place-items:center;font-size:12px;font-weight:700}
 .head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:24px 0 20px;flex-wrap:wrap}
@@ -45,7 +45,7 @@ h1{font-size:38px;letter-spacing:-.02em;line-height:1.1}
 .stat{padding:20px;min-height:150px;display:flex;flex-direction:column;justify-content:space-between}
 .stat.hi{background:var(--lime);border-color:var(--lime)}
 .stat small{color:var(--mut);font-size:13px}.stat.hi small{color:#3c4a10}
-.stat .v{font:700 26px 'Space Mono';margin:14px 0 8px;letter-spacing:-.04em}
+.stat .v{font:700 clamp(17px,1.9vw,28px) 'Space Mono';margin:14px 0 8px;letter-spacing:-.05em;white-space:nowrap}
 .stat .v.neg{color:var(--red)}
 .stat em{font-style:normal;font-size:12px;color:var(--mut)}.stat.hi em{color:#3c4a10}
 .grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
@@ -97,7 +97,10 @@ label{display:block;font-size:13px;font-weight:700;margin:16px 0 8px}
  .fab{display:grid}
 }
 .fab{display:none;position:fixed;right:18px;bottom:84px;width:54px;height:54px;border-radius:50%;background:var(--lime);border:0;font-size:26px;place-items:center;box-shadow:0 8px 20px rgba(0,0,0,.25);z-index:7}
+body.noauth aside,body.noauth .fab{display:none!important}
+.auth{max-width:420px;margin:10vh auto 0}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <aside>
@@ -122,10 +125,63 @@ const CATS=[
  {id:'lainnya',e:'✨',l:'Lainnya'}];
 const INCS=[{id:'bonus',e:'🎁',l:'Bonus / THR'},{id:'freelance',e:'💻',l:'Freelance'},{id:'jual',e:'🏷️',l:'Jualan'},{id:'transfer',e:'🤝',l:'Kiriman'},{id:'inlain',e:'✨',l:'Lainnya'}];
 const cat=id=>[...CATS,...INCS].find(c=>c.id===id)||CATS[CATS.length-1];
-const KEY='duitdaily.v1';
-let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
-S=S||{salary:0,tx:[]};
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+/* === ISI DARI SUPABASE: Project Settings → API === */
+const SB_URL='https://dxyqpdwqmizvavyoptpd.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR4eXFwZHdxbWl6dmF2eW9wdHBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4NDA3MDEsImV4cCI6MjEwNjQxNjcwMX0.BgraMEngazXh07rduFzkLJVH4sR16T1H8UbeWEN6u_Y';
+/* ================================================== */
+const useSB=!!(SB_URL&&SB_KEY&&window.supabase);
+const sb=useSB?supabase.createClient(SB_URL,SB_KEY):null;
+let S={salary:0,tx:[]},user=null;
+const LK='duitdaily.v1',loc=()=>{try{localStorage.setItem(LK,JSON.stringify(S))}catch(e){}};
+const num=t=>({...t,amt:Number(t.amt)});
+const DB={
+ async load(){
+  if(!useSB){try{S=JSON.parse(localStorage.getItem(LK))||S}catch(e){}return}
+  const a=await sb.from('settings').select('salary').maybeSingle();
+  const b=await sb.from('transactions').select('id,type,cat,amt,date,note').order('date',{ascending:false}).limit(5000);
+  if(a.error||b.error)throw(a.error||b.error);
+  S={salary:Number(a.data?.salary||0),tx:b.data.map(num)};
+ },
+ async salary(n){
+  if(useSB){const{error}=await sb.from('settings').upsert({user_id:user.id,salary:n});if(error)throw error}
+  S.salary=n;loc();
+ },
+ async add(t){
+  if(!useSB){S.tx.push({...t,id:Date.now()});return loc()}
+  const{data,error}=await sb.from('transactions').insert(t).select('id,type,cat,amt,date,note').single();
+  if(error)throw error;S.tx.push(num(data));
+ },
+ async del(id){
+  if(useSB){const{error}=await sb.from('transactions').delete().eq('id',id);if(error)throw error}
+  S.tx=S.tx.filter(t=>t.id!==id);loc();
+ },
+ async reset(){
+  if(useSB){await sb.from('transactions').delete().eq('user_id',user.id);await sb.from('settings').delete().eq('user_id',user.id)}
+  S={salary:0,tx:[]};loc();
+ }
+};
+function authView(){
+ document.body.classList.add('noauth');$('#nav').innerHTML='';
+ $('#app').innerHTML=`<div class="auth"><div class="card"><div class="logo">👛</div><h1 style="font-size:30px;margin-top:14px">Duit Daily</h1><p class="sub">Masuk biar catatanmu aman dan ikut ke mana-mana.</p>
+ <label for="em">Email</label><input class="in" id="em" type="email" autocomplete="email">
+ <label for="pw">Password</label><input class="in" id="pw" type="password" autocomplete="current-password">
+ <p class="hint" id="msg" role="status"></p>
+ <div style="display:flex;gap:10px;margin-top:18px"><button class="btn" id="li" style="flex:1">Masuk</button><button class="btn ghost" id="su">Daftar</button></div></div></div>`;
+ const go=async up=>{
+  const email=$('#em').value.trim(),password=$('#pw').value;
+  if(!email||password.length<6){$('#msg').textContent='Isi email dan password (minimal 6 karakter).';return}
+  const r=up?await sb.auth.signUp({email,password}):await sb.auth.signInWithPassword({email,password});
+  if(r.error){$('#msg').textContent=r.error.message;return}
+  if(!r.data.session){$('#msg').textContent='Cek emailmu untuk konfirmasi, lalu masuk.';return}
+  boot();
+ };
+ $('#li').onclick=()=>go(false);$('#su').onclick=()=>go(true);
+}
+async function boot(){
+ if(useSB){const{data}=await sb.auth.getSession();user=data.session?.user||null;if(!user)return authView()}
+ try{await DB.load()}catch(e){toast('Gagal memuat data: '+e.message)}
+ render();
+}
 const now=new Date();
 let view='overview',cur={y:now.getFullYear(),m:now.getMonth()},filt={cat:'all',type:'all'};
 const $=s=>document.querySelector(s);
@@ -147,6 +203,7 @@ function calc(){
  return{tx,out,inc,spent,extra,total,left,dim,days,perDay:days>0&&total>0?Math.max(left,0)/days:0,past};
 }
 function render(){
+ document.body.classList.remove('noauth');
  $('#nav').innerHTML=[['overview','▦','Overview'],['tx','🧾','Transactions'],['settings','⚙️','Settings']]
   .map(([k,i,l])=>`<button class="${view===k?'on':''}" data-v="${k}"><span>${i}</span>${l}</button>`).join('');
  $('#nav').onclick=e=>{const b=e.target.closest('button');if(b){view=b.dataset.v;render();scrollTo(0,0)}};
@@ -198,18 +255,20 @@ function vSettings(){
  <label for="sal" style="margin-top:0">Gaji per bulan (Rp)</label><input class="in mono" id="sal" inputmode="numeric" placeholder="5.000.000" value="${S.salary?S.salary.toLocaleString('id-ID'):''}">
  <p class="hint">Pemasukan lain (bonus, freelance) dicatat lewat tombol Tambah di menu Transactions.</p>
  <button class="btn" id="saveSal" style="margin-top:18px">Simpan gaji</button></div>
- <div class="card" style="max-width:520px;margin-top:16px"><h3>Data</h3><p class="s">Data tersimpan di browser perangkat ini saja.</p>
+ ${useSB?`<div class="card" style="max-width:520px;margin-top:16px"><h3>Akun</h3><p class="s">${esc(user.email)}</p><button class="btn ghost" id="out">Keluar</button></div>`:''}
+ <div class="card" style="max-width:520px;margin-top:16px"><h3>Data</h3><p class="s">${useSB?'Data tersimpan di akun Supabase kamu.':'Data tersimpan di browser perangkat ini saja.'}</p>
  <button class="btn ghost" id="exp">Unduh CSV</button> <button class="btn danger" id="rst">Hapus semua data</button></div>`;
 }
 function bind(){
  document.querySelectorAll('[data-v]').forEach(b=>{if(b.closest('nav'))return;b.onclick=()=>{view=b.dataset.v;render()}});
  document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>openForm());
  document.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>{cur.m+=+b.dataset.mv;if(cur.m<0){cur.m=11;cur.y--}if(cur.m>11){cur.m=0;cur.y++}render()});
- document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('Hapus transaksi ini?')){S.tx=S.tx.filter(t=>t.id!==+b.dataset.del);save();render();toast('Transaksi dihapus')}});
+ document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Hapus transaksi ini?')){try{await DB.del(+b.dataset.del);render();toast('Transaksi dihapus')}catch(e){toast('Gagal: '+e.message)}}});
  const ft=$('#ft');if(ft){ft.value=filt.type;ft.onchange=()=>{filt.type=ft.value;render()};$('#fc').value=filt.cat;$('#fc').onchange=e=>{filt.cat=e.target.value;render()}}
  const sal=$('#sal');if(sal){sal.oninput=()=>{const n=sal.value.replace(/\D/g,'');sal.value=n?(+n).toLocaleString('id-ID'):''};
-  $('#saveSal').onclick=()=>{S.salary=+sal.value.replace(/\D/g,'')||0;save();toast('Gaji disimpan');view='overview';render()};
-  $('#rst').onclick=()=>{if(confirm('Semua data akan dihapus permanen. Lanjut?')){S={salary:0,tx:[]};save();render();toast('Data dihapus')}};
+  $('#saveSal').onclick=async()=>{try{await DB.salary(+sal.value.replace(/\D/g,'')||0);toast('Gaji disimpan');view='overview';render()}catch(e){toast('Gagal: '+e.message)}};
+  $('#rst').onclick=async()=>{if(confirm('Semua data akan dihapus permanen. Lanjut?')){try{await DB.reset();render();toast('Data dihapus')}catch(e){toast('Gagal: '+e.message)}}};
+  const o=$('#out');if(o)o.onclick=async()=>{await sb.auth.signOut();boot()};
   $('#exp').onclick=()=>{const r=['tanggal,jenis,kategori,jumlah,catatan',...S.tx.map(t=>[t.date,t.type,cat(t.cat).l,t.amt,'"'+(t.note||'').replace(/"/g,'""')+'"'].join(','))];
    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([r.join('\n')],{type:'text/csv'}));a.download='duit-daily.csv';a.click()}}
 }
@@ -227,8 +286,9 @@ function openForm(){
   $('#modal').querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{type=b.dataset.t;draw()});
   $('#modal').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{const v=[$('#amt').value,$('#dt').value,$('#nt').value];sel=b.dataset.c;draw();$('#amt').value=v[0];$('#dt').value=v[1];$('#nt').value=v[2]});
   $('#no').onclick=close;
-  $('#ok').onclick=()=>{const amt=+$('#amt').value.replace(/\D/g,'');if(!amt){toast('Isi jumlahnya dulu');return}
-   const date=$('#dt').value||iso(now);S.tx.push({id:Date.now(),type,cat:sel,amt,date,note:$('#nt').value.trim()});save();
+  $('#ok').onclick=async()=>{const amt=+$('#amt').value.replace(/\D/g,'');if(!amt){toast('Isi jumlahnya dulu');return}
+   const date=$('#dt').value||iso(now),btn=$('#ok');btn.disabled=true;
+   try{await DB.add({type,cat:sel,amt,date,note:$('#nt').value.trim()})}catch(e){btn.disabled=false;toast('Gagal menyimpan: '+e.message);return}
    const[y,m]=date.split('-').map(Number);cur={y,m:m-1};close();render();toast('Tersimpan')};
  };
  draw();$('#ov').classList.add('on');
@@ -238,7 +298,7 @@ $('#ov').onclick=e=>{if(e.target.id==='ov')close()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
 $('#fab').onclick=()=>openForm();
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);tt=setTimeout(()=>t.style.display='none',1800)}
-render();
+boot();
 </script>
 </body>
 </html>
